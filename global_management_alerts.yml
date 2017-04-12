@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Maintains management alerts"
+
+
+Resources:
+
+  Ec2LargeInstanceCreationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: "Large EC2 instance creation."
+
+
+  Ec2LargeInstanceCreationFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: CloudTrail/aws-changes
+      FilterPattern: "{ ($.eventName = RunInstances) && (($.requestParameters.instanceType = *.32xlarge) || ($.requestParameters.instanceType = *.16xlarge) || ($.requestParameters.instanceType = *.8xlarge) || ($.requestParameters.instanceType = *.4xlarge) || ($.requestParameters.instanceType = *.2xlarge) || ($.requestParameters.instanceType = *.10xlarge)) }"
+      MetricTransformations:
+      -
+        MetricValue: 1
+        MetricNamespace: CloudTrailMetrics
+        MetricName: Ec2LargeInstanceCreationEventCount
+
+
+  Ec2LargeInstanceCreationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription:  "Instance greater than allowed size was created."
+      Namespace: CloudTrailMetrics
+      MetricName: Ec2LargeInstanceCreationEventCount
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+      - Ref: Ec2LargeInstanceCreationTopic
