@@ -1,0 +1,44 @@
+# Creates alerting resources to help with cost management, and possibly account attacks.
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Defines CloudWatch Events rules and target(s) for events of interest."
+
+Parameters:
+  LargeInstanceAlertingLambdaArn:
+    Type: String
+    Description: Enter fully-qualified ARN to Large Instance Alerting Lambda.
+
+
+Resources:
+
+  # Rule for newly-created EC2 instances in any region.
+  Ec2RunInstancesEventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Description: "Send EC2 instance creation events to Lambda for inspection and possible messaging/alerting."
+      EventPattern:
+        source:
+          - "aws.ec2"
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          eventName:
+            - "RunInstances"
+      State: "ENABLED"
+      Targets:
+        -
+          Arn: !Ref 'LargeInstanceAlertingLambdaArn'
+          Id: "CweSlackNotificationTarget"
+
+  Ec2RunInstancesEventRuleLambdaPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref 'LargeInstanceAlertingLambdaArn'
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+       Fn::GetAtt:
+         - "Ec2RunInstancesEventRule"
+         - "Arn"
+

@@ -1,0 +1,76 @@
+# Creates alerting resources to help with cost management, and possibly account attacks.
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Maintains management alerts based on CloudTrail-based CloudWatch Logs"
+
+Parameters:
+  CloudTrailLogGroupName:
+    Type: String
+    Default:  CloudTrail/aws-changes
+    Description: Enter the name of the CloudTrail log group for which metrics will be created.
+  SnsSlackNotificationLambdaFunctionArn:
+    Type: String
+    Description: Enter fully-qualified ARN to SNS Slack notification Lambda.  Clear field to stop Slack notifications.
+
+
+Conditions:
+  CreateLargeInstanceSnsSubscription: !Not [!Equals [!Ref SnsSlackNotificationLambdaFunctionArn, ""]]
+
+Resources:
+
+#
+# Large Instance CloudWatch Filter and Alarm
+#
+  Ec2LargeInstanceCreationFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref 'LogGroupName'
+      FilterPattern: "{ ($.eventName = RunInstances) && (($.requestParameters.instanceType = *.32xlarge) || ($.requestParameters.instanceType = *.16xlarge) || ($.requestParameters.instanceType = *.8xlarge) || ($.requestParameters.instanceType = *.4xlarge) || ($.requestParameters.instanceType = *.2xlarge) || ($.requestParameters.instanceType = *.10xlarge)) }"
+      MetricTransformations:
+      -
+        MetricValue: 1
+        MetricNamespace: CloudTrailMetrics
+        MetricName: Ec2LargeInstanceCreationEventCount
+
+
+  Ec2LargeInstanceCreationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription:  "Instance greater than allowed size was created."
+      Namespace: CloudTrailMetrics
+      MetricName: Ec2LargeInstanceCreationEventCount
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+      - Ref: Ec2LargeInstanceCreationTopic
+
+#
+# SNS publication of Large Instance Alarms
+#
+  Ec2LargeInstanceCreationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: "Large EC2 instance creation."
+
+  Ec2LargeInstanceSlackNotificationSub:
+    Type: "AWS::SNS::Subscription"
+    Condition: CreateLargeInstanceSnsSubscription
+    Properties:
+      Endpoint:
+        Ref: SnsSlackNotificationLambdaFunctionArn
+      Protocol: lambda
+      TopicArn: !Ref 'Ec2LargeInstanceCreationTopic'
+
+  Ec2LargeInstanceCreationTopicPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref 'SnsSlackNotificationLambdaFunctionArn'
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref 'Ec2LargeInstanceCreationTopic'
+
+
